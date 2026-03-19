@@ -4,6 +4,8 @@ $(function () {
     let isRightMouseDragging = false
     let lastMouseX = 0
     let rotationValue = 0
+    const sliderPreviewDelayMs = 60
+    const pendingSkinPreviewUpdates = {}
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -132,6 +134,17 @@ $(function () {
         myfavoritelist = JSON.parse(Data)
         if (myfavoritelist == null) { myfavoritelist = {} }
         $.post('http://' + GetParentResourceName() + '/loadfavorite', JSON.stringify({data:myfavoritelist}));
+    }
+
+    function queueSkinPreviewUpdate(key, payload) {
+        if (pendingSkinPreviewUpdates[key]) {
+            clearTimeout(pendingSkinPreviewUpdates[key])
+        }
+
+        pendingSkinPreviewUpdates[key] = setTimeout(function() {
+            $.post('http://' + GetParentResourceName() + '/valuechangeskin', JSON.stringify(payload))
+            pendingSkinPreviewUpdates[key] = null
+        }, sliderPreviewDelayMs)
     }
 
     function ShouldShowFavoriteBox() {
@@ -565,11 +578,11 @@ function ToggleMenu(status) {
                 skinlist[skinid].item2.value = 0
             }
             $(".inputskin_"+skinid+"").val(skinlist[skinid].item1.value);
-            $.post('http://' + GetParentResourceName() + '/valuechangeskin', JSON.stringify({
+            queueSkinPreviewUpdate(`skin_${skinid}`, {
                 data:skinlist[skinid],
                 index:skinid,
                 update: false
-            }));
+            });
         }
 
     });
@@ -598,11 +611,11 @@ function ToggleMenu(status) {
         if (skinlist[skinid] && skinlist[skinid].item2) {
             skinlist[skinid].item2.value = parseInt(value)
             $(".rangepattern_"+skinid+"").val(skinlist[skinid].item2.value);
-            $.post('http://' + GetParentResourceName() + '/valuechangeskin', JSON.stringify({
+            queueSkinPreviewUpdate(`pattern_${skinid}`, {
                 data:skinlist[skinid],
                 index:skinid,
                 update: false,
-            }));
+            });
         }
 
     });

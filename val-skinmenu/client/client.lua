@@ -678,6 +678,17 @@ function ScriptWork()
 			end
 		end
 		if data.data and data.index then
+			if data.update == false then
+				for _, v in pairs(data.data) do
+					if v and v.name ~= nil and v.value ~= nil then
+						TriggerEvent("skinchanger:change", v.name, v.value)
+					end
+				end
+
+				cb("ok")
+				return
+			end
+
 			TriggerEvent("skinchanger:getData", function(_, maxVals)
 				local update = false
 				for _, v in pairs(data.data) do
