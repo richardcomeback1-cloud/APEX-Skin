@@ -1,13 +1,26 @@
-scriptName = GetCurrentResourceName()
+scriptName = (Config and Config.ScriptName and Config.ScriptName ~= '' and Config.ScriptName) or GetCurrentResourceName()
 Config = {
     ["Router"] = "esx:getSharedObject",
     ["Font"] = "font4thai",
+    ["ScriptName"] = scriptName,
+    ["ExportResources"] = Config.ExportResources or {},
+    ["Items"] = {
+        enabled = true,
+        surgery = {
+            name = "surgery_ticket",
+            menu = "SURGERY",
+            consume = false,
+        }
+    },
 
     ["Notify"] = function (text,type)
-        exports['nakin_allnotify']:AddNotify({
-            type = type,
-            text = text,
-        })
+        local notifyResource = Config.ExportResources and Config.ExportResources.notify
+        if notifyResource and notifyResource ~= '' and GetResourceState(notifyResource) == 'started' then
+            exports[notifyResource]:AddNotify({
+                type = type,
+                text = text,
+            })
+        end
     end,
 
     ["Admin"] = {
@@ -61,7 +74,7 @@ Config = {
             Position = {
 
             },
-            CustumeType = "default",
+            CustumeType = "SURGERY",
             Price = {
                 AddFavorite = false,
                 BuyPrice = 0,

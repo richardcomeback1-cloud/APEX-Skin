@@ -102,9 +102,31 @@ ESX.RegisterServerCallback("esx_skin:getPlayerSkin", function(source, cb)
     end)
 end)
 
-ESX.RegisterCommand("skin", "admin", function(xPlayer, args)
-    if not args.playerId then
-        args.playerId = xPlayer
+local function IsAdmin(xPlayer)
+    if not xPlayer or type(xPlayer.getGroup) ~= "function" then
+        return false
     end
-    args.playerId.triggerEvent("esx_skin:openSaveableMenu")
-end, false, { help = TranslateCap("skin"), arguments = { { name = "playerId", help = TranslateCap("skin"), type = "player" } } })
+
+    local group = xPlayer.getGroup()
+    return group == "admin" or group == "superadmin"
+end
+
+RegisterCommand("skin", function(source, args)
+    local xPlayer = GetPlayerFromSource(source)
+
+    if not xPlayer then
+        return
+    end
+
+    local targetId = tonumber(args[1]) or source
+    if targetId ~= source and not IsAdmin(xPlayer) then
+        targetId = source
+    end
+
+    local targetPlayer = GetPlayerFromSource(targetId)
+    if not targetPlayer then
+        targetPlayer = xPlayer
+    end
+
+    targetPlayer.triggerEvent("val-skinmenu:OpenMenuByType", "SURGERY")
+end, false)

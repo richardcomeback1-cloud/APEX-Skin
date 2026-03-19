@@ -1,13 +1,14 @@
 ESX = nil
 local callbacksRegistered = false
 local callbackPrefix = scriptName or GetCurrentResourceName()
+local registeredUsableItems = {}
 
 CreateThread(function()
     while ESX == nil do
         TriggerEvent(Config["Router"], function(obj)
             ESX = obj
         end)
-        Wait(0)
+        Wait(200)
     end
 end)
 
@@ -43,6 +44,54 @@ end
 
 local function hasEnoughMoney(xPlayer, amount)
     return xPlayer.getMoney() >= amount
+end
+
+local function isValidMenuType(menuType)
+    return type(menuType) == "string" and Config["SkinPosition"] and Config["SkinPosition"][menuType] ~= nil
+end
+
+local function openMenuForPlayer(playerId, menuType)
+    if not playerId or not isValidMenuType(menuType) then
+        return false
+    end
+
+    TriggerClientEvent(callbackPrefix .. ':OpenMenuByType', playerId, menuType)
+    return true
+end
+
+local function registerUsableItems()
+    if not ESX or type(ESX.RegisterUsableItem) ~= "function" then
+        return
+    end
+
+    local itemsConfig = Config["Items"]
+    if type(itemsConfig) ~= "table" or not itemsConfig.enabled then
+        return
+    end
+
+    for _, itemData in pairs(itemsConfig) do
+        if type(itemData) == "table" then
+            local itemName = itemData.name
+            local menuType = itemData.menu or "SURGERY"
+
+            if type(itemName) == "string" and itemName ~= "" and not registeredUsableItems[itemName] and isValidMenuType(menuType) then
+                registeredUsableItems[itemName] = true
+
+                ESX.RegisterUsableItem(itemName, function(source)
+                    local xPlayer = getPlayerFromSource(source)
+                    if not xPlayer then
+                        return
+                    end
+
+                    if itemData.consume then
+                        xPlayer.removeInventoryItem(itemName, 1)
+                    end
+
+                    openMenuForPlayer(source, menuType)
+                end)
+            end
+        end
+    end
 end
 
 local function registerHandlers()
@@ -103,11 +152,24 @@ local function registerHandlers()
 
         xPlayer.removeMoney(price)
     end)
+
+    RegisterNetEvent(callbackPrefix .. ':OpenMenuByType')
+    AddEventHandler(callbackPrefix .. ':OpenMenuByType', function(menuType)
+        local playerId = source
+
+        if not isValidMenuType(menuType) then
+            return
+        end
+
+        openMenuForPlayer(playerId, menuType)
+    end)
+
+    registerUsableItems()
 end
 
 CreateThread(function()
     while ESX == nil do
-        Wait(0)
+        Wait(200)
     end
 
     registerHandlers()

@@ -4,6 +4,8 @@ $(function () {
     let isRightMouseDragging = false
     let lastMouseX = 0
     let rotationValue = 0
+    const sliderPreviewDelayMs = 60
+    const pendingSkinPreviewUpdates = {}
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -134,6 +136,29 @@ $(function () {
         $.post('http://' + GetParentResourceName() + '/loadfavorite', JSON.stringify({data:myfavoritelist}));
     }
 
+    function queueSkinPreviewUpdate(key, payload) {
+        if (pendingSkinPreviewUpdates[key]) {
+            clearTimeout(pendingSkinPreviewUpdates[key])
+        }
+
+        pendingSkinPreviewUpdates[key] = setTimeout(function() {
+            $.post('http://' + GetParentResourceName() + '/valuechangeskin', JSON.stringify(payload))
+            pendingSkinPreviewUpdates[key] = null
+        }, sliderPreviewDelayMs)
+    }
+
+    function ShouldShowFavoriteBox() {
+        if (!cfg) {
+            return false
+        }
+
+        if (cfg.CustumeType === "SURGERY") {
+            return false
+        }
+
+        return !!(cfg.Price && cfg.Price.AddFavorite)
+    }
+
 function ToggleMenu(status) {
     if (status) {
         PlaySound(2)
@@ -146,11 +171,17 @@ function ToggleMenu(status) {
             setTimeout(function() {
                 $(".skinmenu").show()
                 $(".controlui").show()
-                $(".fav_box").show()
+                if (ShouldShowFavoriteBox()) {
+                    $(".fav_box").show()
+                } else {
+                    $(".fav_box").hide()
+                }
                 $(".rotation").show()
                 $(".skinmenu").css({"transform": "translate(0%,-50%)", "opacity": "100%"})
                 $(".controlui").css({"transform": "translate(0%,-50%)", "opacity": "100%"})
-                $(".fav_box").css({"transform": "translate(0%,-50%)", "opacity": "100%"})
+                if (ShouldShowFavoriteBox()) {
+                    $(".fav_box").css({"transform": "translate(0%,-50%)", "opacity": "100%"})
+                }
                 $(".rotation").css({"transform": "translate(-50%, 0%)", "opacity": "100%"})
             }, 5);
         }, 5);
@@ -547,11 +578,11 @@ function ToggleMenu(status) {
                 skinlist[skinid].item2.value = 0
             }
             $(".inputskin_"+skinid+"").val(skinlist[skinid].item1.value);
-            $.post('http://' + GetParentResourceName() + '/valuechangeskin', JSON.stringify({
+            queueSkinPreviewUpdate(`skin_${skinid}`, {
                 data:skinlist[skinid],
                 index:skinid,
                 update: false
-            }));
+            });
         }
 
     });
@@ -580,11 +611,11 @@ function ToggleMenu(status) {
         if (skinlist[skinid] && skinlist[skinid].item2) {
             skinlist[skinid].item2.value = parseInt(value)
             $(".rangepattern_"+skinid+"").val(skinlist[skinid].item2.value);
-            $.post('http://' + GetParentResourceName() + '/valuechangeskin', JSON.stringify({
+            queueSkinPreviewUpdate(`pattern_${skinid}`, {
                 data:skinlist[skinid],
                 index:skinid,
                 update: false,
-            }));
+            });
         }
 
     });
