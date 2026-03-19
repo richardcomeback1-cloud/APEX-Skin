@@ -19,14 +19,159 @@ local skinMenuTextUiState = {
 	key = nil,
 	text = nil
 }
+local ACCESSORIES_KVP_KEY = "Set_Accessories_32"
+local TEXTURE_OVERRIDES = {
+	['arms_2'] = 'arms',
+	['hair_color_2'] = 'hair_color_1',
+	['hair_2'] = 'hair_1',
+	['bodyb_2'] = 'bodyb_1',
+	['blemishes_2'] = 'blemishes_1',
+	['age_2'] = 'age_1',
+	['complexion_2'] = 'complexion_1',
+	['sun_2'] = 'sun_1',
+	['moles_2'] = 'moles_1',
+	['eyebrows_2'] = 'eyebrows_1',
+	['eyebrows_4'] = 'eyebrows_3',
+	['eyebrows_6'] = 'eyebrows_5',
+	['makeup_2'] = 'makeup_1',
+	['makeup_4'] = 'makeup_3',
+	['lipstick_2'] = 'lipstick_1',
+	['lipstick_4'] = 'lipstick_3',
+	['chest_3'] = 'chest_2',
+	['blush_2'] = 'blush_1',
+	['beard_2'] = 'beard_1',
+	['beard_4'] = 'beard_3',
+}
 
 local hideOtherPlayers = false
 local activeNearbyFx = nil
 local activeSkinMenuZone = nil
+local skinMenuZones = {}
+local favoriteMenuZones = {}
+local skinPositionByName = {}
+local PlayerPedCache = PlayerPedId()
+local resourceConfig = Config.ExportResources or {}
+local textUIResource = resourceConfig.textUI or ''
+local inventoryResource = resourceConfig.inventory or ''
+local notifyResource = resourceConfig.notify or ''
+local carHUDResource = resourceConfig.carHUD or ''
+local playerHUDResource = resourceConfig.playerHUD or ''
+
+local function isStartedResource(resourceName)
+	return type(resourceName) == "string" and resourceName ~= "" and GetResourceState(resourceName) == "started"
+end
+
+local function notifySetRight(state)
+	if isStartedResource(notifyResource) then
+		TriggerEvent(("%s:setright"):format(notifyResource), "skinmenu", state)
+	end
+end
+
+local function setScreenUI(state)
+	if isStartedResource(playerHUDResource) then
+		TriggerEvent(("%s:screenui"):format(playerHUDResource), state)
+	end
+end
+
+local function setCarHUDVisible(hidden)
+	if isStartedResource(carHUDResource) then
+		exports[carHUDResource]:hidefast(hidden)
+	end
+end
 
 local function isPlayerUnavailableForSkinMenu(ped)
 	local playerPed = ped or PlayerPedId()
 	return IsEntityDead(playerPed) or IsPedDeadOrDying(playerPed, true)
+end
+
+local function getPlayerPedCached()
+	if not DoesEntityExist(PlayerPedCache) then
+		PlayerPedCache = PlayerPedId()
+	end
+
+	return PlayerPedCache
+end
+
+local function getDistanceSquared(a, b)
+	local dx = a.x - b.x
+	local dy = a.y - b.y
+	local dz = a.z - b.z
+
+	return (dx * dx) + (dy * dy) + (dz * dz)
+end
+
+local function buildMenuZones()
+	skinMenuZones = {}
+	favoriteMenuZones = {}
+	skinPositionByName = {}
+
+	for name, zone in pairs(Config["SkinPosition"]) do
+		skinPositionByName[name] = zone
+
+		for positionIndex = 1, #(zone.Position or {}) do
+			local position = zone.Position[positionIndex]
+			skinMenuZones[#skinMenuZones + 1] = {
+				name = name,
+				config = zone,
+				coords = position.coords,
+				size = position.size or 1.0,
+				sizeSq = (position.size or 1.0) * (position.size or 1.0),
+				heading = position.heading,
+				blip = position.blip,
+			}
+		end
+	end
+
+	local favoriteConfig = Config["FavoritePosition"]
+	for positionIndex = 1, #(favoriteConfig.Position or {}) do
+		local position = favoriteConfig.Position[positionIndex]
+		favoriteMenuZones[#favoriteMenuZones + 1] = {
+			config = favoriteConfig,
+			coords = position.coords,
+			size = position.size or 1.0,
+			sizeSq = (position.size or 1.0) * (position.size or 1.0),
+			heading = position.heading,
+		}
+	end
+end
+
+local function openMenuFromZone(menuType, zoneData, menuMode)
+	local playerPed = getPlayerPedCached()
+
+	TriggerEvent("skinchanger:getSkin", function(skin)
+		MenuType = menuMode or "Normal"
+		LastSkin = skin
+		SkinIndex = menuType
+		activeSkinMenuZone = zoneData and {
+			coords = zoneData.coords,
+			size = zoneData.size
+		} or nil
+
+		if zoneData and zoneData.heading then
+			SetEntityHeading(playerPed, zoneData.heading)
+		end
+
+		ClearPedTasks(playerPed)
+		ToggleSkinMenu(true)
+	end)
+end
+
+local function loadAccessoriesFromStorage()
+	local rawAccessories = GetResourceKvpString(ACCESSORIES_KVP_KEY)
+	if not rawAccessories or rawAccessories == "" then
+		return {}
+	end
+
+	local decodedAccessories = json.decode(rawAccessories)
+	if type(decodedAccessories) ~= "table" then
+		return {}
+	end
+
+	return decodedAccessories
+end
+
+local function saveAccessoriesToStorage()
+	SetResourceKvp(ACCESSORIES_KVP_KEY, json.encode(Accessories))
 end
 
 local function setOtherPlayersVisible(status)
@@ -53,10 +198,12 @@ local function showSkinMenuTextUI(keyText, text)
 		return
 	end
 
-	exports['val-textui']:open({
-		key = safeKey,
-		text = safeText
-	})
+	if isStartedResource(textUIResource) then
+		exports[textUIResource]:open({
+			key = safeKey,
+			text = safeText
+		})
+	end
 
 	skinMenuTextUiState.isOpen = true
 	skinMenuTextUiState.key = safeKey
@@ -68,7 +215,9 @@ local function hideSkinMenuTextUI()
 		return
 	end
 
-	exports['val-textui']:close()
+	if isStartedResource(textUIResource) then
+		exports[textUIResource]:close()
+	end
 	skinMenuTextUiState.isOpen = false
 	skinMenuTextUiState.key = nil
 	skinMenuTextUiState.text = nil
@@ -77,20 +226,18 @@ end
 Citizen.CreateThread(function()
 	while ESX == nil do
 		TriggerEvent(Config["Router"], function(obj) ESX = obj end)
-		Citizen.Wait(0)
+		Citizen.Wait(200)
 	end
 
 	while ESX.GetPlayerData().job == nil do
 		Citizen.Wait(10)
 	end
     ESX.PlayerData = ESX.GetPlayerData()
+	buildMenuZones()
     ScriptWork()
 
 	Citizen.Wait(5000)
-	Accessories = json.decode(GetResourceKvpString("Set_Accessories_64"))
-	if Accessories == nil then
-		Accessories = {}
-	end
+	Accessories = loadAccessoriesFromStorage()
 	UpdateAccessories()
 end)
 
@@ -117,6 +264,24 @@ function ScriptWork()
         ESX.PlayerData.job = job
     end)
 
+	RegisterNetEvent(scriptName .. ':OpenMenuByType')
+	AddEventHandler(scriptName .. ':OpenMenuByType', function(menuType)
+		if ToggleMenu then
+			return
+		end
+
+		if isPlayerUnavailableForSkinMenu(getPlayerPedCached()) then
+			Config["Notify"]("คุณเสียชีวิตอยู่ ไม่สามารถเปิดเมนูแต่งตัวได้", "error")
+			return
+		end
+
+		if not skinPositionByName[menuType] then
+			return
+		end
+
+		openMenuFromZone(menuType, nil, "Normal")
+	end)
+
 	RegisterNetEvent('val-skinmenu:DeleteAccessories')
     AddEventHandler('val-skinmenu:DeleteAccessories', function(index)
         if Accessories[index] then
@@ -128,24 +293,21 @@ function ScriptWork()
 				table.insert(NewTable, Accessories[k])
 			end
 			Accessories = NewTable
-			SetResourceKvp("Set_Accessories_32", json.encode(Accessories))
+			saveAccessoriesToStorage()
 			UpdateAccessories()
 
 		end
     end)
 
 	function UpdateAccessories()
-		-- print(ESX.DumpTable(Accessories))
-		print("Update Accessories")
-		-- TriggerEvent("Fz_inventoryhud:setOwnerAccessories", Accessories)
-		pcall(function ()
-			exports['xbb-inventory']:SetAccessory(Accessories)
-		end)
+		if isStartedResource(inventoryResource) then
+			exports[inventoryResource]:SetAccessory(Accessories)
+		end
 	end
 
 	RegisterCommand("clearaccessories", function()
 		Accessories = {}
-		SetResourceKvp("Set_Accessories_32", json.encode(Accessories))
+		saveAccessoriesToStorage()
 		UpdateAccessories()
 	end)
 
@@ -343,309 +505,77 @@ function ScriptWork()
 
 	function GetSkinData(restrict)
 
-		local elements, _components, lits_setup, accept_data  = {}, {}, {}, {}
+		local elements, lits_setup, accept_data = {}, {}, {}
 		local loadedSkinData = false
-		local playerPed = PlayerPedId()
+		local playerPed = getPlayerPedCached()
 
 		TriggerEvent("skinchanger:getData", function(components, maxVals)
             while maxVals == nil do Wait(300) end
-			for i=1, #components, 1 do
-				table.insert(_components, components[i])
-			end
 
-			for i=1, #_components, 1 do
-				local value       = _components[i].value
-				local componentId = _components[i].componentId
-				local data = {}
+			for i = 1, #components do
+				local component = components[i]
+				local componentId = component.componentId
+				local value = component.value
+
 				if componentId == 0 then
-					value = GetPedPropIndex(playerPed, _components[i].componentId)
+					value = GetPedPropIndex(playerPed, componentId)
 				end
 
-				if _components[i].name == 'arms_2' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = 'arms',
-					}
-
-				elseif _components[i].name == 'hair_color_2' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "hair_color_1",
-					}
-
-				elseif _components[i].name == 'hair_2' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "hair_1",
-					}
-
-				elseif _components[i].name == 'bodyb_2' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "bodyb_1",
-					}
-
-				elseif _components[i].name == 'blemishes_2' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "blemishes_1",
-					}
-					
-				elseif _components[i].name == 'age_2' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "age_1",
-					}
-					
-				elseif _components[i].name == 'complexion_2' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "complexion_1",
-					}
-
-				elseif _components[i].name == 'sun_2' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "sun_1",
-					}
-
-				elseif _components[i].name == 'moles_2' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "moles_1",
-					}
-
-				elseif _components[i].name == 'eyebrows_2' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "eyebrows_1",
-					}
-
-				elseif _components[i].name == 'eyebrows_4' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "eyebrows_3",
-					}
-
-				elseif _components[i].name == 'eyebrows_6' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "eyebrows_5",
-					}
-
-				elseif _components[i].name == 'makeup_2' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "makeup_1",
-					}
-
-				elseif _components[i].name == 'makeup_4' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "makeup_3",
-					}
-				elseif _components[i].name == 'lipstick_2' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "lipstick_1",
-					}
-				elseif _components[i].name == 'lipstick_4' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "lipstick_3",
-					}
-
-				elseif _components[i].name == 'chest_3' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "chest_2",
-					}
-
-				elseif _components[i].name == 'blush_2' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "blush_1",
-					}
-
-				elseif _components[i].name == 'beard_2' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "beard_1",
-					}
-
-				elseif _components[i].name == 'beard_4' then
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = "beard_3",
-					}
-
-				else
-
-					data = {
-						label     = _components[i].label,
-						name      = _components[i].name,
-						value     = value,
-						min       = _components[i].min,
-						textureof = _components[i].textureof,
-					}
-					
-				end
-				
-				for k,v in pairs(maxVals) do
-					if k == _components[i].name then
-						data.max = v
-						break
-					end
-				end
-
-				table.insert(elements, data)
+				elements[#elements + 1] = {
+					label = component.label,
+					name = component.name,
+					value = value,
+					min = component.min,
+					max = maxVals[component.name],
+					textureof = TEXTURE_OVERRIDES[component.name] or component.textureof,
+				}
 			end
 
 			for i = 1, #elements do
 				local data = elements[i]
-				if not elements[i].textureof then
-					local index = ListIndex[elements[i].name]
-					if index then	
-						if not lits_setup[index] then lits_setup[index] = {} end
-						lits_setup[index]['item1'] = {
-							name = data.name,
-							label = data.label,
-							minvalue = data.min,
-							maxvalue = data.max,
-							value = data.value,
-						} 
-					end   
-				else
-					local index = ListIndex[elements[i].textureof]
-					if index then
-						if not lits_setup[index] then lits_setup[index] = {} end
-						lits_setup[index]['item2'] = {
-							name = data.name,
-							label = data.label,
-							minvalue = data.min,
-							maxvalue = data.max,
-							value = data.value,
-						}   
-					end 
-				end
-			end 
+				local setupIndex = data.textureof and ListIndex[data.textureof] or ListIndex[data.name]
 
-            if restrict then
-				-- print(ESX.DumpTable(restrict))
-                local load_table , check_index = {} , {}
-                for k_lits, v_lits in pairs(lits_setup) do 
-                    for k, v in pairs(restrict) do 
-                        if v then
-							if ListCheck[ k ] then
-								local name_real = ListCheck[ k ]["name"]
-								if name_real then
-									if name_real == v_lits["item1"]["name"] then
-										if not check_index[ name_real ] then
-											check_index[ name_real ] = true
-											table.insert(accept_data , v_lits)
-										end
-									end
+				if setupIndex then
+					local bucket = lits_setup[setupIndex] or {}
+					lits_setup[setupIndex] = bucket
+					bucket[data.textureof and 'item2' or 'item1'] = {
+						name = data.name,
+						label = data.label,
+						minvalue = data.min,
+						maxvalue = data.max,
+						value = data.value,
+					}
+				end
+			end
+
+			if restrict then
+				local check_index = {}
+				for _, setup in pairs(lits_setup) do
+					if setup.item1 then
+						for restrictKey, enabled in pairs(restrict) do
+							if enabled and ListCheck[restrictKey] then
+								local name_real = ListCheck[restrictKey]["name"]
+								if name_real and name_real == setup.item1.name and not check_index[name_real] then
+									check_index[name_real] = true
+									accept_data[#accept_data + 1] = setup
 								end
 							end
-                        end
-                    end
-                end
-            else
-                accept_data = lits_setup
-            end
-			loadedSkinData = true
+						end
+					end
+				end
+			else
+				accept_data = lits_setup
+			end
 
+			loadedSkinData = true
 		end)
 
 		local timeoutAt = GetGameTimer() + 2000
 		while not loadedSkinData and GetGameTimer() < timeoutAt do
-			Citizen.Wait(0)
+			Citizen.Wait(10)
 		end
 
-		components_skin = accept_data or {}
-        
-
-		return components_skin
+		return accept_data or {}
 	end	
 
 	-- Citizen.CreateThread(function()
@@ -685,11 +615,9 @@ function ScriptWork()
 			hideSkinMenuTextUI()
 			CustumeList = GetSkinData(Config["Costume"][CFG.CustumeType])
 			FreezeEntityPosition(PlayerPedId(), true)
-			TriggerEvent('nakin_allnotify:setright', "skinmenu", 31)
-			pcall(function()
-				exports['xbb-corehud']:hidefast(true)
-				TriggerEvent("nakin_basecore:screenui", true)
-			end)
+			notifySetRight(31)
+			setCarHUDVisible(true)
+			setScreenUI(true)
 		else
 			hideOtherPlayers = false
 			setOtherPlayersVisible(true)
@@ -697,13 +625,11 @@ function ScriptWork()
 			SkinIndex = nil
 			lastcampos = nil
 			FreezeEntityPosition(PlayerPedId(), false)
-			TriggerEvent('nakin_allnotify:setright', "skinmenu", false)
+			notifySetRight(false)
 			DeleteCam()
 			for k,v in pairs(ScriptEntity) do DeleteEntity(v) end
-			pcall(function()
-				exports['xbb-corehud']:hidefast(false)
-				TriggerEvent("nakin_basecore:screenui", false)
-			end)
+			setCarHUDVisible(false)
+			setScreenUI(false)
 		end
 		ToggleMenu = status
 		SetNuiFocus(ToggleMenu, ToggleMenu)
@@ -736,20 +662,17 @@ function ScriptWork()
 			end
 		end
 		if data.data and data.index then
-			local components, maxVals
-			TriggerEvent("skinchanger:getData", function(comp, max)
-				components, maxVals = comp, max
+			TriggerEvent("skinchanger:getData", function(_, maxVals)
 				local update = false
-				for index , value in pairs(maxVals) do
-					for k,v in pairs(data.data) do
-						if v.name == index then
-							v.maxvalue = maxVals[index]
-							if v.value > v.maxvalue then
-								v.value = v.maxvalue
-							end
-							TriggerEvent("skinchanger:change", v.name , v.value)
-							update = true
+				for _, v in pairs(data.data) do
+					local maxValue = maxVals[v.name]
+					if maxValue ~= nil then
+						v.maxvalue = maxValue
+						if v.value > v.maxvalue then
+							v.value = v.maxvalue
 						end
+						TriggerEvent("skinchanger:change", v.name , v.value)
+						update = true
 					end
 				end
 				if update then
@@ -812,29 +735,28 @@ function ScriptWork()
 								if SkinIndex then
 									if Config["SkinPosition"][SkinIndex].Accessories then
 
-										TriggerEvent("skinchanger:getData", function(components, maxVals)
+										TriggerEvent("skinchanger:getData", function(components)
+											local accessoryConfig = Config["SkinPosition"][SkinIndex].Accessories
 											local save_accessories = {}
 											local label = "Accessories"
-											for k,v in pairs(components) do
-												for index,value in pairs(skin) do
-													if index == v.name then
-														if Config["SkinPosition"][SkinIndex].Accessories.skin[index] then
-															save_accessories[index] = value
-														end
-													end
+											for _, component in pairs(components) do
+												if accessoryConfig.label == component.name then
+													label = component.label
 												end
-												if Config["SkinPosition"][SkinIndex].Accessories.label == v.name then
-													label = v.label
+											end
+											for componentName in pairs(accessoryConfig.skin or {}) do
+												if skin[componentName] ~= nil then
+													save_accessories[componentName] = skin[componentName]
 												end
 											end
 											table.insert(Accessories, {
 												label = label,
-												name = Config["SkinPosition"][SkinIndex].Accessories.label,
+												name = accessoryConfig.label,
 												skin = save_accessories,
-												anime = Config["SkinPosition"][SkinIndex].Accessories.anime,
-												default = Config["SkinPosition"][SkinIndex].Accessories.default
+												anime = accessoryConfig.anime,
+												default = accessoryConfig.default
 											})
-											SetResourceKvp("Set_Accessories_32", json.encode(Accessories))
+											saveAccessoriesToStorage()
 											UpdateAccessories()
 										end)
 
@@ -851,8 +773,10 @@ function ScriptWork()
 					end
 				end, SkinIndex)
 			elseif UI_TYPE == "FAVORITE" then
-				TriggerServerEvent("esx_skin:save", skin)
-				ToggleSkinMenu(false)
+				TriggerEvent("skinchanger:getSkin", function(skin)
+					TriggerServerEvent("esx_skin:save", skin)
+				end)
+				ToggleFavorite(false)
 			end
 			Citizen.Wait(1000)
 			Waiting = false
@@ -1014,80 +938,82 @@ function ScriptWork()
 	end)
 
 	Citizen.CreateThread(function()
-		local lastNearbyPlayerScan = 0
-		local nearbyPlayerFound = false
         while true do
-            Sleep = 5000
+            local sleep = 1500
+
 			if not ToggleMenu then
-				local playerPed = PlayerPedId()
+				local playerPed = getPlayerPedCached()
 				if isPlayerUnavailableForSkinMenu(playerPed) then
 					hideSkinMenuTextUI()
 				else
-					local coords    = GetEntityCoords(playerPed)
+					local coords = GetEntityCoords(playerPed)
 					local shouldShowTextUI = false
-                for k,v in pairs(Config["SkinPosition"]) do
-					for index,value in pairs(v.Position) do
-						local Dis = GetDistanceBetweenCoords(coords, value.coords, true)
-						if v.Marker.show then
-							if Dis < v.Marker.show then
-								Sleep = 0
-								local marker = v.Marker
-								DrawMarker(marker.type, value.coords.x,value.coords.y,value.coords.z+marker.hight, 0.0, 0.0, 0.0, 0, 0.0, 0.0, marker.size.x,marker.size.y,marker.size.z, marker.colors.r,marker.colors.g,marker.colors.b,marker.colors.a, false, true, 2, true, false, false, false)
-							end
+					local openedMenu = false
+
+					for i = 1, #skinMenuZones do
+						local zone = skinMenuZones[i]
+						local cfg = zone.config
+						local distanceSq = getDistanceSquared(coords, zone.coords)
+						local markerShow = cfg.Marker and cfg.Marker.show or 0.0
+
+						if markerShow > 0.0 and distanceSq < (markerShow * markerShow) then
+							sleep = 0
+							local marker = cfg.Marker
+							DrawMarker(marker.type, zone.coords.x, zone.coords.y, zone.coords.z + marker.hight, 0.0, 0.0, 0.0, 0, 0.0, 0.0, marker.size.x, marker.size.y, marker.size.z, marker.colors.r, marker.colors.g, marker.colors.b, marker.colors.a, false, true, 2, true, false, false, false)
 						end
-						if Dis < value.size then
-							Sleep = 0
+
+						if distanceSq < zone.sizeSq then
+							sleep = 0
 							shouldShowTextUI = true
-							showSkinMenuTextUI(v.Key, v.Text)
-							if IsDisabledControlJustReleased(0, Keys[v.Key]) then
-								TriggerEvent("skinchanger:getSkin", function(skin)
-									MenuType = "Normal"
-									LastSkin = skin
-									SkinIndex = k
-									activeSkinMenuZone = {
-										coords = value.coords,
-										size = value.size
-									}
-									SetEntityHeading(playerPed,value.heading)
-									ClearPedTasks(playerPed)	
-									ToggleSkinMenu(true)
-								end)
+							showSkinMenuTextUI(cfg.Key, cfg.Text)
+							if not openedMenu and IsDisabledControlJustReleased(0, Keys[cfg.Key]) then
+								openMenuFromZone(zone.name, zone, "Normal")
+								openedMenu = true
 								Citizen.Wait(1000)
+								break
 							end
 						end
 					end
-                end
-				for index,value in pairs(Config["FavoritePosition"].Position) do
-					local v = Config["FavoritePosition"]
-					local Dis = GetDistanceBetweenCoords(coords, value.coords, true)
-					if v.Marker.show then
-						if Dis < v.Marker.show then
-							Sleep = 0
-							local marker = v.Marker
-							DrawMarker(marker.type, value.coords.x,value.coords.y,value.coords.z+marker.hight, 0.0, 0.0, 0.0, 0, 0.0, 0.0, marker.size.x,marker.size.y,marker.size.z, marker.colors.r,marker.colors.g,marker.colors.b,marker.colors.a, false, true, 2, true, false, false, false)
+
+					if not openedMenu then
+						local favoriteConfig = Config["FavoritePosition"]
+						for i = 1, #favoriteMenuZones do
+							local zone = favoriteMenuZones[i]
+							local distanceSq = getDistanceSquared(coords, zone.coords)
+							local markerShow = favoriteConfig.Marker and favoriteConfig.Marker.show or 0.0
+
+							if markerShow > 0.0 and distanceSq < (markerShow * markerShow) then
+								sleep = 0
+								local marker = favoriteConfig.Marker
+								DrawMarker(marker.type, zone.coords.x, zone.coords.y, zone.coords.z + marker.hight, 0.0, 0.0, 0.0, 0, 0.0, 0.0, marker.size.x, marker.size.y, marker.size.z, marker.colors.r, marker.colors.g, marker.colors.b, marker.colors.a, false, true, 2, true, false, false, false)
+							end
+
+							if distanceSq < zone.sizeSq then
+								sleep = 0
+								shouldShowTextUI = true
+								showSkinMenuTextUI(favoriteConfig.Key, favoriteConfig.Text)
+								if IsDisabledControlJustReleased(0, Keys[favoriteConfig.Key]) then
+									TriggerEvent("skinchanger:getSkin", function(skin)
+										MenuType = "Favorite"
+										LastSkin = skin
+										activeSkinMenuZone = {
+											coords = zone.coords,
+											size = zone.size,
+										}
+										if zone.heading then
+											SetEntityHeading(playerPed, zone.heading)
+										end
+										ClearPedTasks(playerPed)
+										ToggleFavorite(true)
+									end)
+									Citizen.Wait(1000)
+									openedMenu = true
+									break
+								end
+							end
 						end
 					end
-					if Dis < value.size then
-						Sleep = 0
-						shouldShowTextUI = true
-						showSkinMenuTextUI(v.Key, v.Text)
-						if IsDisabledControlJustReleased(0, Keys[v.Key]) then
-							TriggerEvent("skinchanger:getSkin", function(skin)
-								MenuType = "Normal"
-								LastSkin = skin
-								SkinIndex = k
-								activeSkinMenuZone = {
-									coords = value.coords,
-									size = value.size
-								}
-								SetEntityHeading(playerPed,value.heading)
-								ClearPedTasks(playerPed)	
-								ToggleSkinMenu(true)
-							end)
-							Citizen.Wait(1000)
-						end
-					end
-				end
+
 					if not shouldShowTextUI then
 						hideSkinMenuTextUI()
 					end
@@ -1100,24 +1026,21 @@ function ScriptWork()
 					end
 				end
 			else
-				Sleep = 5
-				local playerPed = PlayerPedId()
+				sleep = 5
+				local playerPed = getPlayerPedCached()
 				DisableAllControlActions(0)
 				DisableAllControlActions(1)
 				DisableAllControlActions(2)
 				FreezeEntityPosition(playerPed, true)
 				if IsPedDeadOrDying(playerPed) and not IsPedInAnyVehicle(playerPed, false) then
-					if ToggleMenu then
-						ToggleSkinMenu(false)
-						TriggerEvent('skinchanger:loadSkin', LastSkin)
-					end
+					ToggleSkinMenu(false)
+					TriggerEvent('skinchanger:loadSkin', LastSkin)
 				end
 
-				if ToggleMenu and activeSkinMenuZone and activeSkinMenuZone.coords then
+				if activeSkinMenuZone and activeSkinMenuZone.coords then
 					local currentCoords = GetEntityCoords(playerPed)
 					local maxDistance = (activeSkinMenuZone.size or 1.0) + 0.2
-					local outOfRange = #(currentCoords - activeSkinMenuZone.coords) > maxDistance
-					if outOfRange then
+					if getDistanceSquared(currentCoords, activeSkinMenuZone.coords) > (maxDistance * maxDistance) then
 						ToggleSkinMenu(false)
 						TriggerEvent('skinchanger:loadSkin', LastSkin)
 						Config["Notify"]("ออกนอกระยะเมนูแต่งตัว ระบบปิดเมนูอัตโนมัติ", "error")
@@ -1125,7 +1048,7 @@ function ScriptWork()
 				end
 			end
 
-            Citizen.Wait(Sleep)
+            Citizen.Wait(sleep)
         end
     end)
 
@@ -1143,30 +1066,26 @@ function ScriptWork()
 			setOtherPlayersVisible(true)
 			hideSkinMenuTextUI()
 			FreezeEntityPosition(PlayerPedId(), true)
-			TriggerEvent('nakin_allnotify:setright', "skinmenu", 28)
-			pcall(function()
-				exports['xbb-corehud']:hidefast(true)
-				TriggerEvent("nakin_basecore:screenui", true)
-			end)
+			notifySetRight(28)
+			setCarHUDVisible(true)
+			setScreenUI(true)
 		else
 			hideOtherPlayers = false
 			setOtherPlayersVisible(true)
 			SkinIndex = nil
 			lastcampos = nil
 			FreezeEntityPosition(PlayerPedId(), false)
-			TriggerEvent('nakin_allnotify:setright', "skinmenu", false)
+			notifySetRight(false)
 			DeleteCam()
 			for k,v in pairs(ScriptEntity) do DeleteEntity(v) end
-			pcall(function()
-				exports['xbb-corehud']:hidefast(false)
-				TriggerEvent("nakin_basecore:screenui", false)
-			end)
+			setCarHUDVisible(false)
+			setScreenUI(false)
 		end
 		ToggleMenu = status
 		SetNuiFocus(ToggleMenu, ToggleMenu)
 		ClearPedTasks(PlayerPedId())
 		SendNUIMessage({
-			type = 'ToggleFavorite',
+			action = 'ToggleFavorite',
 			status = ToggleMenu,
 			CFG = Config["FavoritePosition"]
 		})
