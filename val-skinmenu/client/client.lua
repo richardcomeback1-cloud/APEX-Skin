@@ -79,6 +79,22 @@ local function setCarHUDVisible(hidden)
 	end
 end
 
+local function setMenuNuiFocus(state)
+	SetNuiFocus(state, state)
+	SetNuiFocusKeepInput(false)
+end
+
+local function disableSkinMenuControls()
+	local controls = {
+		1, 2, 24, 25, 30, 31, 32, 33, 34, 35, 36, 37, 44, 45, 68, 69, 70, 71, 72, 73, 75, 91, 92,
+		106, 114, 140, 141, 142, 143, 257, 263, 264, 331
+	}
+
+	for i = 1, #controls do
+		DisableControlAction(0, controls[i], true)
+	end
+end
+
 local function isPlayerUnavailableForSkinMenu(ped)
 	local playerPed = ped or PlayerPedId()
 	return IsEntityDead(playerPed) or IsPedDeadOrDying(playerPed, true)
@@ -632,7 +648,7 @@ function ScriptWork()
 			setScreenUI(false)
 		end
 		ToggleMenu = status
-		SetNuiFocus(ToggleMenu, ToggleMenu)
+		setMenuNuiFocus(ToggleMenu)
 		ClearPedTasks(PlayerPedId())
 		-- SendNUIMessage({
 		-- 	type = 'ToggleSkinMenu',
@@ -1028,9 +1044,7 @@ function ScriptWork()
 			else
 				sleep = 5
 				local playerPed = getPlayerPedCached()
-				DisableAllControlActions(0)
-				DisableAllControlActions(1)
-				DisableAllControlActions(2)
+				disableSkinMenuControls()
 				FreezeEntityPosition(playerPed, true)
 				if IsPedDeadOrDying(playerPed) and not IsPedInAnyVehicle(playerPed, false) then
 					ToggleSkinMenu(false)
@@ -1082,7 +1096,7 @@ function ScriptWork()
 			setScreenUI(false)
 		end
 		ToggleMenu = status
-		SetNuiFocus(ToggleMenu, ToggleMenu)
+		setMenuNuiFocus(ToggleMenu)
 		ClearPedTasks(PlayerPedId())
 		SendNUIMessage({
 			action = 'ToggleFavorite',

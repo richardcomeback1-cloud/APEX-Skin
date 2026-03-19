@@ -134,6 +134,18 @@ $(function () {
         $.post('http://' + GetParentResourceName() + '/loadfavorite', JSON.stringify({data:myfavoritelist}));
     }
 
+    function ShouldShowFavoriteBox() {
+        if (!cfg) {
+            return false
+        }
+
+        if (cfg.CustumeType === "SURGERY") {
+            return false
+        }
+
+        return !!(cfg.Price && cfg.Price.AddFavorite)
+    }
+
 function ToggleMenu(status) {
     if (status) {
         PlaySound(2)
@@ -146,11 +158,17 @@ function ToggleMenu(status) {
             setTimeout(function() {
                 $(".skinmenu").show()
                 $(".controlui").show()
-                $(".fav_box").show()
+                if (ShouldShowFavoriteBox()) {
+                    $(".fav_box").show()
+                } else {
+                    $(".fav_box").hide()
+                }
                 $(".rotation").show()
                 $(".skinmenu").css({"transform": "translate(0%,-50%)", "opacity": "100%"})
                 $(".controlui").css({"transform": "translate(0%,-50%)", "opacity": "100%"})
-                $(".fav_box").css({"transform": "translate(0%,-50%)", "opacity": "100%"})
+                if (ShouldShowFavoriteBox()) {
+                    $(".fav_box").css({"transform": "translate(0%,-50%)", "opacity": "100%"})
+                }
                 $(".rotation").css({"transform": "translate(-50%, 0%)", "opacity": "100%"})
             }, 5);
         }, 5);
